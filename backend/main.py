@@ -83,6 +83,43 @@ def get_monthly_data(year: Optional[int] = None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing data: {str(e)}")
 
+@app.get("/api/company-projects")
+def get_company_projects():
+    try:
+        # Path to your CSV file
+        csv_path = "projects_data.csv"
+        
+        # Check if file exists
+        if not os.path.exists(csv_path):
+            raise HTTPException(status_code=404, detail="CSV file not found")
+        
+        # Read CSV file
+        df = pd.read_csv(csv_path)
+        
+        # Filter out rows with missing or zero values
+        df = df.dropna(subset=['winner', 'sum_price_agree', 'project_name', 'transaction_date'])
+        df = df[df['sum_price_agree'] > 0]
+        
+        # Group by company and calculate total values
+        company_totals = df.groupby('winner')['sum_price_agree'].sum().reset_index()
+        
+        # Sort by total value and get top 20
+        top_companies = company_totals.sort_values('sum_price_agree', ascending=False).head(20)['winner'].tolist()
+        
+        # Filter projects for top companies
+        filtered_df = df[df['winner'].isin(top_companies)]
+        
+        # Select relevant columns
+        result_df = filtered_df[['winner', 'project_name', 'sum_price_agree', 'transaction_date', 'contract_date']]
+        
+        # Convert to list of dictionaries
+        result = result_df.to_dict(orient='records')
+        
+        return result
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing data: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

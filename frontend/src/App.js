@@ -4,6 +4,7 @@ import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
 import axios from 'axios';
 import './App.css';
+import CompanyProjectsChart from './components/CompanyProjectsChart';
 
 function App() {
   const [chartData, setChartData] = useState(null);
@@ -11,6 +12,7 @@ function App() {
   const [error, setError] = useState(null);
   const [year, setYear] = useState('');
   const [availableYears, setAvailableYears] = useState([]);
+  const [activeChart, setActiveChart] = useState('monthly'); // 'monthly' or 'companies'
 
   // Function to fetch data from API
   const fetchData = async (selectedYear = null) => {
@@ -112,34 +114,63 @@ function App() {
     fetchData(selectedYear === '' ? null : selectedYear);
   };
 
+  // Handle chart type change
+  const handleChartChange = (chartType) => {
+    setActiveChart(chartType);
+  };
+
   return (
     <div className="App">
       <header className="App-header">
         <h1>Project Agreements Dashboard</h1>
-        <div className="filter-container">
-          <label htmlFor="year-filter">Filter by Year:</label>
-          <select 
-            id="year-filter" 
-            value={year} 
-            onChange={handleYearChange}
+        
+        <div className="chart-tabs">
+          <button 
+            className={`tab-button ${activeChart === 'monthly' ? 'active' : ''}`}
+            onClick={() => handleChartChange('monthly')}
           >
-            <option value="">All Years</option>
-            {availableYears.map(year => (
-              <option key={year} value={year}>{year}</option>
-            ))}
-          </select>
+            Monthly Analysis
+          </button>
+          <button 
+            className={`tab-button ${activeChart === 'companies' ? 'active' : ''}`}
+            onClick={() => handleChartChange('companies')}
+          >
+            Top Companies
+          </button>
         </div>
+        
+        {activeChart === 'monthly' && (
+          <div className="filter-container">
+            <label htmlFor="year-filter">Filter by Year:</label>
+            <select 
+              id="year-filter" 
+              value={year} 
+              onChange={handleYearChange}
+            >
+              <option value="">All Years</option>
+              {availableYears.map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </header>
       
       <main className="App-main">
-        {loading ? (
-          <div className="loading">Loading data...</div>
-        ) : error ? (
-          <div className="error">{error}</div>
+        {activeChart === 'monthly' ? (
+          // Monthly chart
+          loading ? (
+            <div className="loading">Loading data...</div>
+          ) : error ? (
+            <div className="error">{error}</div>
+          ) : (
+            <div className="chart-container">
+              <HighchartsReact highcharts={Highcharts} options={chartData} />
+            </div>
+          )
         ) : (
-          <div className="chart-container">
-            <HighchartsReact highcharts={Highcharts} options={chartData} />
-          </div>
+          // Company projects chart
+          <CompanyProjectsChart />
         )}
       </main>
       
