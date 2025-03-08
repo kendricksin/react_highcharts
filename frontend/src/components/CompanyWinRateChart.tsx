@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
-import axios from 'axios';
 
 // Define interfaces
 interface CompanyWinRate {
@@ -25,82 +24,107 @@ interface HeadToHeadCompetitor {
   win_rate_vs_competitor: number;
 }
 
-interface HeadToHeadResponse {
-  company: string;
-  competitors: HeadToHeadCompetitor[];
+// Define tooltip formatter context
+interface HighchartsTooltipFormatterContextObject {
+  x: string;
+  points: Array<{
+    y: number;
+    series: {
+      name: string;
+    };
+  }>;
 }
 
-const CompanyWinRateChart: React.FC = () => {
-  const [winRateData, setWinRateData] = useState<CompanyWinRate[]>([]);
-  const [headToHeadData, setHeadToHeadData] = useState<HeadToHeadResponse | null>(null);
+interface CompanyWinRateChartProps {
+  data: CompanyWinRate[];
+}
+
+const CompanyWinRateChart: React.FC<CompanyWinRateChartProps> = ({ data }) => {
+  const [chartOptions, setChartOptions] = useState<Highcharts.Options | null>(null);
+  const [headToHeadChartOptions, setHeadToHeadChartOptions] = useState<Highcharts.Options | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<string>('');
   const [minBids, setMinBids] = useState<number>(3);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [filteredData, setFilteredData] = useState<CompanyWinRate[]>([]);
 
-  // Function to fetch win rate data
-  const fetchWinRateData = async (): Promise<void> => {
-    setLoading(true);
-    try {
-      const response = await axios.get<CompanyWinRate[]>(`http://localhost:8000/api/company-win-rates?min_bids=${minBids}`);
-      setWinRateData(response.data);
-      
-      // If there's data and no company selected yet, select the first one
-      if (response.data.length > 0 && !selectedCompany) {
-        setSelectedCompany(response.data[0].tin);
-      }
-      
-      setLoading(false);
-    } catch (err) {
-      console.error('Error fetching win rate data:', err);
-      setError('Failed to load win rate data. Please try again later.');
-      setLoading(false);
+  // Process data based on minimum bids filter
+  useEffect(() => {
+    if (!data || data.length === 0) {
+      setFilteredData([]);
+      return;
     }
-  };
 
-  // Function to fetch head-to-head data
-  const fetchHeadToHeadData = async (companyTin: string): Promise<void> => {
-    if (!companyTin) return;
+    const filtered = data
+      .filter(company => company.total_bids >= minBids)
+      .sort((a, b) => b.win_rate - a.win_rate);
     
-    try {
-      const response = await axios.get<HeadToHeadResponse>(`http://localhost:8000/api/head-to-head?company_tin=${companyTin}`);
-      setHeadToHeadData(response.data);
-    } catch (err) {
-      console.error('Error fetching head-to-head data:', err);
-      setHeadToHeadData(null);
-    }
-  };
+    setFilteredData(filtered);
 
-  // Initial data load
+    if (filtered.length > 0 && !selectedCompany) {
+      setSelectedCompany(filtered[0].tin);
+    }
+  }, [data, minBids]);
+
+  // Create win rate chart
   useEffect(() => {
-    fetchWinRateData();
-  }, [minBids]);
+    if (!filteredData || filteredData.length === 0) {
+      setChartOptions({
+        title: { text: 'No win rate data available' }
+      });
+      return;
+    }
 
-  // Fetch head-to-head data when selected company changes
+    // Create chart configuration
+    const chartOptions = getWinRateChartOptions(filteredData);
+    setChartOptions(chartOptions);
+  }, [filteredData]);
+
+  // Update Head-to-Head chart when selected company changes
   useEffect(() => {
-    if (selectedCompany) {
-      fetchHeadToHeadData(selectedCompany);
+    if (!selectedCompany || filteredData.length === 0) {
+      setHeadToHeadChartOptions({
+        title: { text: 'No competitor data available' }
+      });
+      return;
     }
-  }, [selectedCompany]);
 
-  // Handle company selection change
-  const handleCompanyChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
-    setSelectedCompany(e.target.value);
-  };
+    // In a real implementation, you would fetch head-to-head data from an API
+    // For now, create mock data based on the selected company
+    const mockHeadToHeadData = createMockHeadToHeadData(selectedCompany);
+    
+    // Create chart configuration
+    const chartOptions = getHeadToHeadChartOptions(mockHeadToHeadData);
+    setHeadToHeadChartOptions(chartOptions);
+  }, [selectedCompany, filteredData]);
 
-  // Handle min bids change
-  const handleMinBidsChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
-    const value = parseInt(e.target.value, 10);
-    if (!isNaN(value) && value > 0) {
-      setMinBids(value);
-    }
+  // Create mock head-to-head data (in a real app, this would come from an API)
+  const createMockHeadToHeadData = (companyTin: string): HeadToHeadCompetitor[] => {
+    const selectedCompanyData = filteredData.find(c => c.tin === companyTin);
+    if (!selectedCompanyData) return [];
+
+    // Generate mock competitors (in a real app, this would come from the API)
+    return filteredData
+      .filter(c => c.tin !== companyTin)
+      .slice(0, 5)
+      .map(competitor => {
+        const encounters = Math.floor(Math.random() * 20) + 1;
+        const companyWins = Math.floor(Math.random() * encounters);
+        return {
+          competitor_tin: competitor.tin,
+          competitor: competitor.company,
+          encounters,
+          company_wins: companyWins,
+          competitor_wins: encounters - companyWins,
+          win_rate_vs_competitor: (companyWins / encounters) * 100
+        };
+      });
   };
 
   // Create win rate chart options
-  const getWinRateChartOptions = (): Highcharts.Options => {
-    const companies = winRateData.slice(0, 15).map(item => item.company);
-    const winRates = winRateData.slice(0, 15).map(item => item.win_rate);
-    const bidCounts = winRateData.slice(0, 15).map(item => item.total_bids);
+  const getWinRateChartOptions = (data: CompanyWinRate[]): Highcharts.Options => {
+    const displayData = data.slice(0, 15);
+    const companies = displayData.map(item => item.company);
+    const winRates = displayData.map(item => item.win_rate);
+    const bidCounts = displayData.map(item => item.total_bids);
     
     return {
       chart: {
@@ -111,7 +135,7 @@ const CompanyWinRateChart: React.FC = () => {
         text: 'Company Win Rates'
       },
       subtitle: {
-        text: 'Source: Project Bid Data'
+        text: 'Based on Project Bid Data'
       },
       xAxis: {
         categories: companies,
@@ -134,9 +158,9 @@ const CompanyWinRateChart: React.FC = () => {
       }],
       tooltip: {
         shared: true,
-        formatter: function() {
+        formatter: function(): string {
           // Add type assertion for 'this' to include points property
-          const self = this as unknown as { x: string; points: Array<{ series: { name: string }; y: number }> };
+          const self = this as unknown as HighchartsTooltipFormatterContextObject;
           const points = self.points || [];
           let tooltip = `<b>${self.x}</b><br/>`;
           
@@ -178,8 +202,8 @@ const CompanyWinRateChart: React.FC = () => {
   };
 
   // Create head-to-head chart options
-  const getHeadToHeadChartOptions = (): Highcharts.Options => {
-    if (!headToHeadData || headToHeadData.competitors.length === 0) {
+  const getHeadToHeadChartOptions = (headToHeadData: HeadToHeadCompetitor[]): Highcharts.Options => {
+    if (!headToHeadData || headToHeadData.length === 0) {
       return {
         title: {
           text: 'No head-to-head data available'
@@ -187,9 +211,12 @@ const CompanyWinRateChart: React.FC = () => {
       };
     }
     
-    const competitors = headToHeadData.competitors.map(item => item.competitor);
-    const winRates = headToHeadData.competitors.map(item => item.win_rate_vs_competitor);
-    const encounters = headToHeadData.competitors.map(item => item.encounters);
+    const competitors = headToHeadData.map(item => item.competitor);
+    const winRates = headToHeadData.map(item => item.win_rate_vs_competitor);
+    const encounters = headToHeadData.map(item => item.encounters);
+    
+    const selectedCompanyInfo = filteredData.find(c => c.tin === selectedCompany);
+    const companyName = selectedCompanyInfo ? selectedCompanyInfo.company : 'Selected Company';
     
     return {
       chart: {
@@ -197,7 +224,7 @@ const CompanyWinRateChart: React.FC = () => {
         height: 400
       },
       title: {
-        text: `${headToHeadData.company}'s Performance vs. Competitors`
+        text: `${companyName}'s Performance vs. Competitors`
       },
       xAxis: {
         categories: competitors,
@@ -220,7 +247,7 @@ const CompanyWinRateChart: React.FC = () => {
         shared: true,
         formatter: function() {
           // Add type assertion for 'this' to include points property
-          const self = this as unknown as { x: string; points: Array<{ series: { name: string }; y: number }> };
+          const self = this as unknown as HighchartsTooltipFormatterContextObject;
           const points = self.points || [];
           let tooltip = `<b>${self.x}</b><br/>`;
           
@@ -235,7 +262,7 @@ const CompanyWinRateChart: React.FC = () => {
             }
           });
           
-          const competitor = headToHeadData.competitors.find(c => c.competitor === self.x);
+          const competitor = headToHeadData.find(c => c.competitor === self.x);
           if (competitor) {
             tooltip += `<br/>Company Wins: ${competitor.company_wins}<br/>`;
             tooltip += `Competitor Wins: ${competitor.competitor_wins}<br/>`;
@@ -266,6 +293,23 @@ const CompanyWinRateChart: React.FC = () => {
     };
   };
 
+  // Handle company selection change
+  const handleCompanyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedCompany(e.target.value);
+  };
+
+  // Handle min bids change
+  const handleMinBidsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseInt(e.target.value, 10);
+    if (!isNaN(value) && value > 0) {
+      setMinBids(value);
+    }
+  };
+
+  if (!chartOptions) {
+    return <div className="loading">Preparing chart...</div>;
+  }
+
   return (
     <div className="company-win-rate-container">
       <div className="filter-container">
@@ -281,14 +325,14 @@ const CompanyWinRateChart: React.FC = () => {
         </div>
         
         <div className="filter-item">
-          <label htmlFor="company-select">Select Company:</label>
+          <label htmlFor="company-select">Select Company for Head-to-Head:</label>
           <select 
             id="company-select" 
             value={selectedCompany} 
             onChange={handleCompanyChange}
-            disabled={loading || winRateData.length === 0}
+            disabled={filteredData.length === 0}
           >
-            {winRateData.map(company => (
+            {filteredData.map(company => (
               <option key={company.tin} value={company.tin}>
                 {company.company} ({company.win_rate.toFixed(1)}% win rate)
               </option>
@@ -297,21 +341,15 @@ const CompanyWinRateChart: React.FC = () => {
         </div>
       </div>
       
-      {loading ? (
-        <div className="loading">Loading data...</div>
-      ) : error ? (
-        <div className="error">{error}</div>
-      ) : (
-        <div className="charts-container">
-          <div className="chart-wrapper">
-            <HighchartsReact highcharts={Highcharts} options={getWinRateChartOptions()} />
-          </div>
-          
-          <div className="chart-wrapper">
-            <HighchartsReact highcharts={Highcharts} options={getHeadToHeadChartOptions()} />
-          </div>
+      <div className="charts-container">
+        <div className="chart-wrapper">
+          <HighchartsReact highcharts={Highcharts} options={chartOptions} />
         </div>
-      )}
+        
+        <div className="chart-wrapper">
+          <HighchartsReact highcharts={Highcharts} options={headToHeadChartOptions || {}} />
+        </div>
+      </div>
     </div>
   );
 };

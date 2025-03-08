@@ -20,10 +20,7 @@ def get_db_connection():
         db_name = config["dbname"]
         db_user = config["user"]
         db_password = config["password"]
-        
-        # Log connection attempt (without password)
-        logger.info(f"Connecting to PostgreSQL: host={db_host}, port={db_port}, dbname={db_name}, user={db_user}")
-        
+                
         if not db_host or not db_name or not db_user:
             raise ValueError("Missing required database connection parameters")
             

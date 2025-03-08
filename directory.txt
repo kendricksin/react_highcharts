@@ -1,0 +1,39 @@
+react-highcharts/
+│
+├── backend/                # FastAPI backend
+│   ├── .env                # Environment variables for database connection
+│   ├── .env.example        # Example environment file for reference
+│   ├── requirements.txt    # Python dependencies
+│   ├── main.py             # FastAPI application entry point
+│   │
+│   └── app/                # Application code
+│       ├── __init__.py     # Makes the directory a Python package
+│       ├── database.py     # Database connection utilities
+│       ├── models.py       # Pydantic models for API
+│       │
+│       ├── utils/          # Utility functions
+│       │   ├── __init__.py
+│       │   └── env.py      # Environment variable handling
+│       │
+│       └── routers/        # API route handlers
+│           ├── __init__.py
+│           ├── projects.py # Project data endpoints
+│           ├── search.py   # Search endpoints
+│           ├── winrates.py # Win rate analysis endpoints
+│           └── diagnostic.py # Diagnostic endpoints
+│
+├── frontend/              # React frontend with TypeScript
+│   ├── public/            # Static assets
+│   └── src/               # Source code
+│       ├── components/    # React components
+│       │   ├── CompanyProjectsChart.tsx
+│       │   ├── CompanyWinRateChart.tsx
+│       │   ├── CompanySearch.tsx
+│       │   └── CompanyDashboard.tsx
+│       ├── types/         # TypeScript interfaces
+│       │   └── index.ts
+│       ├── App.tsx        # Main App component
+│       ├── App.css        # Styling
+│       └── index.tsx      # Application entry point
+│
+└── README.md              # Project documentation
