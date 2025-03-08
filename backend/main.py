@@ -1,11 +1,20 @@
 # main.py
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import pandas as pd
-from datetime import datetime
 import os
-from pydantic import BaseModel
-from typing import List, Optional
+import logging
+from app.utils.env import load_env_vars, get_db_config
+from app.routers import projects, winrates, search, diagnostic
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_env_vars()
 
 # Initialize FastAPI app
 app = FastAPI(title="Project Data API")
@@ -19,107 +28,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class ProjectData(BaseModel):
-    month: str
-    year: int
-    total_sum_price_agree: float
-    count: int
+# Include routers
+app.include_router(projects.router)
+app.include_router(winrates.router)
+app.include_router(search.router)
+app.include_router(diagnostic.router)
 
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the Project Data API"}
 
-@app.get("/api/data", response_model=List[ProjectData])
-def get_monthly_data(year: Optional[int] = None):
+@app.on_event("startup")
+async def startup_event():
+    """Log configuration on startup"""
+    logger.info("Starting up the Project Data API")
     try:
-        # Path to your CSV file
-        csv_path = "projects_data.csv"
+        # Get database connection parameters (without password)
+        config = get_db_config()
+        db_host = config["host"]
+        db_port = config["port"]
+        db_name = config["dbname"]
+        db_user = config["user"]
+        has_password = "Yes" if config["password"] else "No"
         
-        # Check if file exists
-        if not os.path.exists(csv_path):
-            raise HTTPException(status_code=404, detail="CSV file not found")
-        
-        # Read CSV file
-        df = pd.read_csv(csv_path)
-        
-        # Convert date strings to datetime objects
-        df['contract_date'] = pd.to_datetime(df['contract_date'])
-        
-        # Extract month and year
-        df['month'] = df['contract_date'].dt.month_name()
-        df['year'] = df['contract_date'].dt.year
-        
-        # Filter by year if specified
-        if year:
-            df = df[df['year'] == year]
-        
-        # Group by month and year
-        monthly_data = df.groupby(['year', 'month']).agg({
-            'sum_price_agree': 'sum',
-            'project_id': 'count'  # Count number of projects
-        }).reset_index()
-        
-        # Rename columns
-        monthly_data = monthly_data.rename(columns={
-            'sum_price_agree': 'total_sum_price_agree',
-            'project_id': 'count'
-        })
-        
-        # Sort by year and month
-        month_order = {
-            'January': 1, 'February': 2, 'March': 3, 'April': 4,
-            'May': 5, 'June': 6, 'July': 7, 'August': 8,
-            'September': 9, 'October': 10, 'November': 11, 'December': 12
-        }
-        monthly_data['month_num'] = monthly_data['month'].map(month_order)
-        monthly_data = monthly_data.sort_values(['year', 'month_num'])
-        monthly_data = monthly_data.drop('month_num', axis=1)
-        
-        # Convert to list of dictionaries
-        result = monthly_data.to_dict(orient='records')
-        
-        return result
-    
+        # Log configuration
+        logger.info(f"Database configuration: host={db_host}, port={db_port}, dbname={db_name}, user={db_user}, password_set={has_password}")
+        logger.info(f"Server configuration: host={os.getenv('HOST', '0.0.0.0')}, port={os.getenv('PORT', '8000')}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing data: {str(e)}")
-
-@app.get("/api/company-projects")
-def get_company_projects():
-    try:
-        # Path to your CSV file
-        csv_path = "projects_data.csv"
-        
-        # Check if file exists
-        if not os.path.exists(csv_path):
-            raise HTTPException(status_code=404, detail="CSV file not found")
-        
-        # Read CSV file
-        df = pd.read_csv(csv_path)
-        
-        # Filter out rows with missing or zero values
-        df = df.dropna(subset=['winner', 'sum_price_agree', 'project_name', 'transaction_date'])
-        df = df[df['sum_price_agree'] > 0]
-        
-        # Group by company and calculate total values
-        company_totals = df.groupby('winner')['sum_price_agree'].sum().reset_index()
-        
-        # Sort by total value and get top 20
-        top_companies = company_totals.sort_values('sum_price_agree', ascending=False).head(20)['winner'].tolist()
-        
-        # Filter projects for top companies
-        filtered_df = df[df['winner'].isin(top_companies)]
-        
-        # Select relevant columns
-        result_df = filtered_df[['winner', 'project_name', 'sum_price_agree', 'transaction_date', 'contract_date']]
-        
-        # Convert to list of dictionaries
-        result = result_df.to_dict(orient='records')
-        
-        return result
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing data: {str(e)}")
+        logger.error(f"Error during startup: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    
+    # Get port from environment variables or use default
+    port = int(os.getenv("PORT", "8000"))
+    host = os.getenv("HOST", "0.0.0.0")
+    
+    uvicorn.run("main:app", host=host, port=port, reload=True)

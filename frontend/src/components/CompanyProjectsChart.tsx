@@ -1,23 +1,42 @@
-// CompanyProjectsChart.js
+// src/components/CompanyProjectsChart.tsx
 import React, { useState, useEffect } from 'react';
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
 import axios from 'axios';
+import { CompanyProject, ProjectInfo, CompanyYearInfo, ChartDataPoint } from '../types';
 
-function CompanyProjectsChart() {
-  const [chartOptions, setChartOptions] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+// Define our own tooltip formatter context
+interface HighchartsTooltipFormatterContextObject {
+  series: {
+    name: string;
+  };
+  point: {
+    category: string;
+    y: number;
+    projects?: ProjectInfo[];
+  };
+}
+
+// Define our own axis labels formatter context
+interface HighchartsAxisLabelFormatterContextObject {
+  value: number;
+  axis?: any;
+}
+
+const CompanyProjectsChart: React.FC = () => {
+  const [chartOptions, setChartOptions] = useState<Highcharts.Options | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (): Promise<void> => {
     setLoading(true);
     try {
-      // Call the new API endpoint that returns company projects
-      const response = await axios.get('http://localhost:8000/api/company-projects');
+      // Call the API endpoint that returns company projects from PostgreSQL
+      const response = await axios.get<CompanyProject[]>('http://localhost:8000/api/company-projects');
       const projectsData = response.data;
       
       // Process the data for the chart
@@ -31,19 +50,19 @@ function CompanyProjectsChart() {
     }
   };
 
-  const processData = (projectsData) => {
+  const processData = (projectsData: CompanyProject[]): Highcharts.Options => {
     try {
       // Group projects by company
-      const companyProjectsMap = {};
-      const companyTotals = {};
+      const companyProjectsMap: Record<string, CompanyProject[]> = {};
+      const companyTotals: Record<string, number> = {};
       
       // Track all years for legend
-      const yearsSet = new Set();
+      const yearsSet = new Set<number | string>();
       
       // Parse dates and extract years
       projectsData.forEach(project => {
         // Extract year from date
-        let year;
+        let year: number | string;
         if (project.transaction_date) {
           year = new Date(project.transaction_date).getFullYear();
         } else if (project.contract_date) {
@@ -52,8 +71,8 @@ function CompanyProjectsChart() {
           year = 'Unknown';
         }
         
-        // Add year to project
-        project.year = year;
+        // Add year to project as a temporary property
+        (project as any).year = year;
         
         // Add to years set
         if (year !== 'Unknown') {
@@ -74,7 +93,7 @@ function CompanyProjectsChart() {
       const years = Array.from(yearsSet).sort();
       
       // Create color map for years
-      const colorMap = {};
+      const colorMap: Record<string | number, string> = {};
       const colorPalette = [
         '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
         '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
@@ -95,7 +114,7 @@ function CompanyProjectsChart() {
         .map(entry => entry[0]);
       
       // Create a data structure to organize projects by company and year
-      const companyYearData = {};
+      const companyYearData: Record<string, Record<string | number, CompanyYearInfo>> = {};
       
       sortedCompanies.forEach(company => {
         companyYearData[company] = {};
@@ -112,7 +131,7 @@ function CompanyProjectsChart() {
         const projects = companyProjectsMap[company] || [];
         
         projects.forEach(project => {
-          const year = project.year;
+          const year = (project as any).year;
           
           companyYearData[company][year].total += project.sum_price_agree;
           companyYearData[company][year].projects.push({
@@ -124,10 +143,11 @@ function CompanyProjectsChart() {
       });
       
       // Create series for each year
-      const seriesData = [];
+      const seriesData: Highcharts.SeriesOptionsType[] = [];
       
       [...years, 'Unknown'].forEach(year => {
-        const yearSeries = {
+        const yearSeries: Highcharts.SeriesColumnOptions = {
+          type: 'column',
           name: year === 'Unknown' ? 'Unknown Year' : `${year}`,
           color: colorMap[year],
           legendIndex: year === 'Unknown' ? years.length : years.indexOf(year),
@@ -139,7 +159,7 @@ function CompanyProjectsChart() {
           const yearInfo = companyYearData[company][year];
           
           if (yearInfo.total > 0) {
-            yearSeries.data[companyIndex] = {
+            (yearSeries.data as any)[companyIndex] = {
               y: yearInfo.total,
               projects: yearInfo.projects,
               color: colorMap[year]
@@ -165,7 +185,7 @@ function CompanyProjectsChart() {
         xAxis: {
           categories: sortedCompanies,
           title: {
-            text: null
+            text: undefined
           },
           labels: {
             style: {
@@ -179,15 +199,17 @@ function CompanyProjectsChart() {
             text: 'Project Value (THB)'
           },
           labels: {
-            formatter: function() {
-              if (this.value >= 1000000000) {
-                return (this.value / 1000000000).toFixed(1) + 'B';
-              } else if (this.value >= 1000000) {
-                return (this.value / 1000000).toFixed(1) + 'M';
-              } else if (this.value >= 1000) {
-                return (this.value / 1000).toFixed(1) + 'K';
+            formatter: function(): string {
+              // Cast this to our custom type
+              const ctx = this as unknown as HighchartsAxisLabelFormatterContextObject;
+              if (ctx.value >= 1000000000) {
+                return (ctx.value / 1000000000).toFixed(1) + 'B';
+              } else if (ctx.value >= 1000000) {
+                return (ctx.value / 1000000).toFixed(1) + 'M';
+              } else if (ctx.value >= 1000) {
+                return (ctx.value / 1000).toFixed(1) + 'K';
               }
-              return this.value;
+              return ctx.value.toString();
             }
           }
         },
@@ -205,25 +227,30 @@ function CompanyProjectsChart() {
         plotOptions: {
           series: {
             stacking: 'normal',
-            pointPadding: 0.1,
-            groupPadding: 0.1,
+            // Casting to any to allow custom properties
             borderWidth: 1,
             borderColor: '#ffffff'
+          } as any,
+          column: {
+            pointPadding: 0.1,
+            groupPadding: 0.1
           }
         },
         tooltip: {
-          formatter: function() {
-            if (this.point.y > 0) {
-              let tooltip = '<b>' + this.series.name + ' Projects</b><br>' +
-                     'Company: ' + this.point.category + '<br>' +
-                     'Total Value: ' + Highcharts.numberFormat(this.point.y, 0, '.', ',') + ' THB<br><br>';
+          formatter: function(): string | false {
+            // Cast this to our custom type
+            const ctx = this as unknown as HighchartsTooltipFormatterContextObject;
+            if (ctx.point.y > 0) {
+              let tooltip = '<b>' + ctx.series.name + ' Projects</b><br>' +
+                     'Company: ' + ctx.point.category + '<br>' +
+                     'Total Value: ' + Highcharts.numberFormat(ctx.point.y, 0, '.', ',') + ' THB<br><br>';
               
               // If we have project details, list them
-              if (this.point.projects && this.point.projects.length > 0) {
+              if (ctx.point.projects && ctx.point.projects.length > 0) {
                 tooltip += '<b>Projects:</b><br>';
                 
                 // List up to 5 projects (to keep tooltip manageable)
-                const projectsToShow = this.point.projects.slice(0, 5);
+                const projectsToShow = ctx.point.projects.slice(0, 5);
                 projectsToShow.forEach(project => {
                   tooltip += '• ' + project.name.substring(0, 30) + 
                              (project.name.length > 30 ? '...' : '') + 
@@ -232,8 +259,8 @@ function CompanyProjectsChart() {
                 });
                 
                 // If there are more projects, show a count
-                if (this.point.projects.length > 5) {
-                  tooltip += '• ... and ' + (this.point.projects.length - 5) + ' more projects<br>';
+                if (ctx.point.projects.length > 5) {
+                  tooltip += '• ... and ' + (ctx.point.projects.length - 5) + ' more projects<br>';
                 }
               }
               
@@ -264,6 +291,6 @@ function CompanyProjectsChart() {
       )}
     </div>
   );
-}
+};
 
 export default CompanyProjectsChart;

@@ -1,37 +1,54 @@
-// App.js
+// src/App.tsx
 import React, { useState, useEffect } from 'react';
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
 import axios from 'axios';
 import './App.css';
 import CompanyProjectsChart from './components/CompanyProjectsChart';
+import CompanyWinRateChart from './components/CompanyWinRateChart';
+import CompanyDashboard from './components/CompanyDashboard';
+import { ProjectData } from './types';
 
-function App() {
-  const [chartData, setChartData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [year, setYear] = useState('');
-  const [availableYears, setAvailableYears] = useState([]);
-  const [activeChart, setActiveChart] = useState('monthly'); // 'monthly' or 'companies'
+// Define our own tooltip formatter context object
+interface TooltipFormatterContextObject {
+  x?: string;
+  y?: number;
+  points?: Array<{
+    y: number;
+    series: {
+      name: string;
+    };
+  }>;
+}
+
+const App: React.FC = () => {
+  const [chartData, setChartData] = useState<Highcharts.Options | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [year, setYear] = useState<string>('');
+  const [availableYears, setAvailableYears] = useState<number[]>([]);
+  const [activeChart, setActiveChart] = useState<'monthly' | 'companies' | 'winrates' | 'dashboard'>('dashboard');
 
   // Function to fetch data from API
-  const fetchData = async (selectedYear = null) => {
+  const fetchData = async (selectedYear: string | null = null): Promise<void> => {
     setLoading(true);
     try {
       const endpoint = `http://localhost:8000/api/data${selectedYear ? `?year=${selectedYear}` : ''}`;
-      const response = await axios.get(endpoint);
+      const response = await axios.get<ProjectData[]>(endpoint);
       
       // Process data for chart
       const months = response.data.map(item => `${item.month} ${item.year}`);
       const values = response.data.map(item => item.total_sum_price_agree);
       const counts = response.data.map(item => item.count);
 
-      // Get unique years for filter
-      const years = [...new Set(response.data.map(item => item.year))];
-      setAvailableYears(years.sort((a, b) => a - b));
+      // Get unique years for filter - fix for Set iteration
+      const yearsSet = new Set<number>();
+      response.data.forEach(item => yearsSet.add(item.year));
+      const years = Array.from(yearsSet).sort((a, b) => a - b);
+      setAvailableYears(years);
       
       // Configure chart options
-      const options = {
+      const options: Highcharts.Options = {
         title: {
           text: 'Total Project Value by Month'
         },
@@ -49,8 +66,8 @@ function App() {
             text: 'Total Value (THB)'
           },
           labels: {
-            formatter: function () {
-              return this.value.toLocaleString('th-TH');
+            formatter: function(): string {
+              return (this.value as number).toLocaleString('th-TH');
             }
           }
         }, {
@@ -61,15 +78,19 @@ function App() {
         }],
         tooltip: {
           shared: true,
-          formatter: function() {
+          formatter: function(): string {
             let tooltip = '<b>' + this.x + '</b><br/>';
-            this.points.forEach(point => {
-              const name = point.series.name;
-              const value = name === 'Number of Projects' 
-                ? point.y 
-                : point.y.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-              tooltip += name + ': ' + value + (name === 'Number of Projects' ? '' : ' THB') + '<br/>';
-            });
+            // Cast this to our custom type
+            const ctx = this as unknown as TooltipFormatterContextObject;
+            if (ctx.points) {
+              ctx.points.forEach(point => {
+                const name = point.series.name;
+                const value = name === 'Number of Projects' 
+                  ? point.y 
+                  : point.y.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                tooltip += name + ': ' + value + (name === 'Number of Projects' ? '' : ' THB') + '<br/>';
+              });
+            }
             return tooltip;
           }
         },
@@ -90,7 +111,7 @@ function App() {
           data: counts,
           yAxis: 1,
           color: '#EA4335'
-        }]
+        }] as Highcharts.SeriesOptionsType[]
       };
       
       setChartData(options);
@@ -108,14 +129,14 @@ function App() {
   }, []);
 
   // Handle year change
-  const handleYearChange = (e) => {
+  const handleYearChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
     const selectedYear = e.target.value;
     setYear(selectedYear);
     fetchData(selectedYear === '' ? null : selectedYear);
   };
 
   // Handle chart type change
-  const handleChartChange = (chartType) => {
+  const handleChartChange = (chartType: 'monthly' | 'companies' | 'winrates' | 'dashboard'): void => {
     setActiveChart(chartType);
   };
 
@@ -125,6 +146,12 @@ function App() {
         <h1>Project Agreements Dashboard</h1>
         
         <div className="chart-tabs">
+          <button 
+            className={`tab-button ${activeChart === 'dashboard' ? 'active' : ''}`}
+            onClick={() => handleChartChange('dashboard')}
+          >
+            Company Dashboard
+          </button>
           <button 
             className={`tab-button ${activeChart === 'monthly' ? 'active' : ''}`}
             onClick={() => handleChartChange('monthly')}
@@ -136,6 +163,12 @@ function App() {
             onClick={() => handleChartChange('companies')}
           >
             Top Companies
+          </button>
+          <button 
+            className={`tab-button ${activeChart === 'winrates' ? 'active' : ''}`}
+            onClick={() => handleChartChange('winrates')}
+          >
+            Company Win Rates
           </button>
         </div>
         
@@ -157,7 +190,10 @@ function App() {
       </header>
       
       <main className="App-main">
-        {activeChart === 'monthly' ? (
+        {activeChart === 'dashboard' ? (
+          // Company dashboard with search
+          <CompanyDashboard />
+        ) : activeChart === 'monthly' ? (
           // Monthly chart
           loading ? (
             <div className="loading">Loading data...</div>
@@ -168,9 +204,12 @@ function App() {
               <HighchartsReact highcharts={Highcharts} options={chartData} />
             </div>
           )
-        ) : (
+        ) : activeChart === 'companies' ? (
           // Company projects chart
           <CompanyProjectsChart />
+        ) : (
+          // Company win rates chart
+          <CompanyWinRateChart />
         )}
       </main>
       
@@ -179,6 +218,6 @@ function App() {
       </footer>
     </div>
   );
-}
+};
 
 export default App;
