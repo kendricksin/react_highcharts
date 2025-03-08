@@ -299,3 +299,103 @@ async def get_competitor_projects(
     finally:
         if conn:
             conn.close()
+
+# Add this to search.py router
+
+@router.get("/adjacent-companies/{company_tin}")
+async def get_adjacent_companies(company_tin: str):
+    """
+    Get companies that have participated in the same bids as the specified company.
+    
+    Args:
+        company_tin: Company TIN
+        
+    Returns:
+        List of adjacent companies with their win rate data
+    """
+    logger.info(f"Finding adjacent companies for company with TIN: {company_tin}")
+    conn = None
+    try:
+        # Connect to database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # First, get all project IDs where the company has bid
+        projects_query = """
+            SELECT DISTINCT project_id
+            FROM public_data.thai_project_bid_info
+            WHERE tin = %s
+        """
+        cursor.execute(projects_query, (company_tin,))
+        project_results = cursor.fetchall()
+        
+        if not project_results:
+            return []
+        
+        # Extract project IDs
+        project_ids = [row["project_id"] for row in project_results]
+        
+        # Create placeholders for the IN clause
+        placeholders = ', '.join(['%s'] * len(project_ids))
+        
+        # Query to find all companies that bid on these projects
+        query = f"""
+            WITH company_bids AS (
+                SELECT
+                    tin,
+                    company,
+                    COUNT(DISTINCT project_id) AS bid_count
+                FROM public_data.thai_project_bid_info
+                WHERE project_id IN ({placeholders})
+                AND tin != %s  -- Exclude the original company
+                GROUP BY tin, company
+                ORDER BY bid_count DESC
+            ),
+            win_data AS (
+                SELECT
+                    b.tin,
+                    COUNT(DISTINCT b.project_id) AS total_bids,
+                    SUM(CASE WHEN b.tin = p.winner_tin THEN 1 ELSE 0 END) AS wins
+                FROM public_data.thai_project_bid_info b
+                JOIN public_data.thai_govt_project p ON b.project_id = p.project_id
+                WHERE b.tin IN (SELECT tin FROM company_bids)
+                GROUP BY b.tin
+            )
+            SELECT
+                cb.tin,
+                cb.company,
+                cb.bid_count AS common_bids,
+                COALESCE(wd.total_bids, 0) AS total_bids,
+                COALESCE(wd.wins, 0) AS wins,
+                CASE 
+                    WHEN COALESCE(wd.total_bids, 0) > 0 
+                    THEN (COALESCE(wd.wins, 0) * 100.0 / COALESCE(wd.total_bids, 0))::numeric(10,1)
+                    ELSE 0 
+                END AS win_rate
+            FROM company_bids cb
+            LEFT JOIN win_data wd ON cb.tin = wd.tin
+            ORDER BY cb.bid_count DESC
+            LIMIT 20
+        """
+        
+        # Execute query with project IDs and the original company TIN
+        params = project_ids + [company_tin]
+        cursor.execute(query, params)
+        results = cursor.fetchall()
+        
+        # Convert to list of dictionaries
+        adjacent_companies = [dict(row) for row in results]
+        
+        # Close connection
+        cursor.close()
+        
+        logger.info(f"Found {len(adjacent_companies)} adjacent companies")
+        return adjacent_companies
+    
+    except Exception as e:
+        logger.error(f"Error finding adjacent companies: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error finding adjacent companies: {str(e)}")
+    finally:
+        if conn:
+            conn.close()

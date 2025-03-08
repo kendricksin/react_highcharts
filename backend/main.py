@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv
 
 # Import your routers
-from app.routers import projects, search, winrates, diagnostic, project_bidders
+from app.routers import projects, search, winrates, diagnostic
 
 # Load environment variables
 load_dotenv()
@@ -39,7 +39,6 @@ app.include_router(projects.router)
 app.include_router(search.router)
 app.include_router(winrates.router)
 app.include_router(diagnostic.router)
-app.include_router(project_bidders.router)  # Add the new router
 
 @app.get("/")
 async def root():

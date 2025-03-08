@@ -1,6 +1,6 @@
 # app/routers/winrates.py
 from fastapi import APIRouter, HTTPException, Query
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from ..database import get_db_connection
 from ..models import CompanyWinRate, HeadToHeadResponse, BidStrategyResponse
 
@@ -9,76 +9,6 @@ router = APIRouter(
     tags=["win_rates"],
     responses={404: {"description": "Not found"}},
 )
-
-@router.get("/company-win-rates", response_model=List[CompanyWinRate])
-async def get_company_win_rates(
-    min_bids: int = Query(3, ge=1, le=100),
-    limit: int = Query(20, ge=1, le=100)
-):
-    """
-    Get company win rates from bid data.
-    
-    Args:
-        min_bids: Minimum number of bids required (default: 3)
-        limit: Maximum number of companies to return (default: 20)
-        
-    Returns:
-        List of company win rates
-    """
-    try:
-        # Connect to database
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Query to calculate company win rates
-        query = """
-            WITH bid_data AS (
-                SELECT 
-                    b.project_id,
-                    b.company,
-                    b.tin,
-                    b.bid,
-                    p.winner,
-                    p.winner_tin,
-                    p.sum_price_agree,
-                    p.dept_name,
-                    CASE WHEN b.tin = p.winner_tin THEN 1 ELSE 0 END AS won_bid,
-                    b.bid / NULLIF(p.sum_price_agree, 0) AS bid_ratio
-                FROM public_data.thai_project_bid_info b
-                LEFT JOIN public_data.thai_govt_project p ON b.project_id = p.project_id
-                WHERE b.tin IS NOT NULL AND b.bid > 0
-            )
-            SELECT 
-                tin,
-                company,
-                COUNT(project_id) AS total_bids,
-                SUM(won_bid) AS wins,
-                (SUM(won_bid) * 100.0 / COUNT(project_id))::numeric(10,2) AS win_rate,
-                SUM(bid) AS total_bid_value,
-                AVG(bid) AS avg_bid,
-                AVG(bid_ratio) AS avg_bid_ratio
-            FROM bid_data
-            GROUP BY tin, company
-            HAVING COUNT(project_id) >= %s
-            ORDER BY win_rate DESC
-            LIMIT %s
-        """
-        
-        # Execute query
-        cursor.execute(query, (min_bids, limit))
-        results = cursor.fetchall()
-        
-        # Convert to list of dictionaries
-        win_rates = [dict(row) for row in results]
-        
-        # Close connection
-        cursor.close()
-        conn.close()
-        
-        return win_rates
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing data: {str(e)}")
 
 @router.get("/head-to-head", response_model=HeadToHeadResponse)
 async def get_head_to_head(
