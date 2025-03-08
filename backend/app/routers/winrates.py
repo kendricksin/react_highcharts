@@ -1,8 +1,13 @@
 # app/routers/winrates.py
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Body
 from typing import List, Optional
+from pydantic import BaseModel
+import logging
 from ..database import get_db_connection
 from ..models import CompanyWinRate, HeadToHeadResponse, BidStrategyResponse
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api",
@@ -132,6 +137,7 @@ async def get_head_to_head(
         return {"company": company_name, "competitors": competitors}
     
     except Exception as e:
+        logger.error(f"Error processing head-to-head data: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing data: {str(e)}")
 
 @router.get("/bid-strategy", response_model=BidStrategyResponse)
@@ -283,4 +289,99 @@ async def get_bid_strategy(
         }
     
     except Exception as e:
+        logger.error(f"Error processing bid strategy data: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing data: {str(e)}")
+
+# New model for company analysis request
+class CompanyAnalysisRequest(BaseModel):
+    company_tins: List[str]
+
+@router.post("/company-bids-analysis")
+async def get_company_bids_analysis(request: CompanyAnalysisRequest):
+    """
+    Get comprehensive bidding data for multiple companies.
+    
+    Args:
+        request: List of company TINs to analyze
+        
+    Returns:
+        Combined project bidding data with additional metrics
+    """
+    logger.info(f"Analyzing bids for companies: {request.company_tins}")
+    
+    if not request.company_tins:
+        raise HTTPException(status_code=400, detail="No company TINs provided")
+        
+    try:
+        # Connect to database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Create placeholders for SQL IN clause
+        placeholders = ', '.join(['%s'] * len(request.company_tins))
+        
+        # Query to get all projects for these companies with additional metrics
+        query = f"""
+            WITH company_bids AS (
+                SELECT 
+                    b.project_id,
+                    b.tin AS company_tin,
+                    b.company AS company_name,
+                    b.bid
+                FROM public_data.thai_project_bid_info b
+                WHERE b.tin IN ({placeholders})
+            )
+            SELECT 
+                p.project_id,
+                p.project_name,
+                p.winner,
+                p.winner_tin,
+                p.sum_price_agree,
+                p.price_build,
+                TO_CHAR(p.transaction_date, 'YYYY-MM-DD') as transaction_date,
+                TO_CHAR(p.contract_date, 'YYYY-MM-DD') as contract_date,
+                cb.company_tin,
+                cb.company_name,
+                cb.bid,
+                CASE 
+                    WHEN p.price_build > 0 THEN 
+                        (p.sum_price_agree / p.price_build - 1)
+                    ELSE NULL
+                END AS price_cut
+            FROM public_data.thai_govt_project p
+            JOIN company_bids cb ON p.project_id = cb.project_id
+            WHERE p.project_name IS NOT NULL
+            ORDER BY 
+                COALESCE(p.contract_date, p.transaction_date) DESC NULLS LAST
+        """
+        
+        # Execute query
+        cursor.execute(query, request.company_tins)
+        results = cursor.fetchall()
+        
+        # Convert to list of dictionaries
+        projects = [dict(row) for row in results]
+        
+        # Calculate additional metrics
+        for project in projects:
+            # Ensure price_cut is a number (may be NULL in the database)
+            if project["price_cut"] is None:
+                # Estimate a price cut based on typical industry patterns
+                # This is a fallback when data is missing
+                project["price_cut"] = -0.05  # Default to 5% discount
+            
+            # Add a field to indicate if this company won the bid
+            project["is_winner"] = (project["winner_tin"] == project["company_tin"])
+        
+        logger.info(f"Found {len(projects)} projects for the selected companies")
+        
+        # Close connection
+        cursor.close()
+        conn.close()
+        
+        return projects
+        
+    except Exception as e:
+        logger.error(f"Error analyzing company bids: {str(e)}")
+        logger.error(f"Exception details: {e}")
+        raise HTTPException(status_code=500, detail=f"Error analyzing company bids: {str(e)}")

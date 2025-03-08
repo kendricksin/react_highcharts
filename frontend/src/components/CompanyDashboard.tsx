@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import CompanySearch from './CompanySearch';
-import CompanyWinRateChart from './CompanyWinRateChart';
-import BiddingHistoryChart from './BiddingHistoryChart';
-import AdjacentCompaniesCard from './AdjacentCompaniesCard';
+import CompanyOverview from './CompanyOverview';
+import CompetitorsView from './CompetitorsView';
+import CompetitorAnalysis from './CompetitorAnalysis';
+import TabNavigation, { TabId } from './TabNavigation';
 
 interface CompanyData {
   tin: string;
@@ -30,18 +31,17 @@ interface ProjectData {
 }
 
 const CompanyDashboard: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [selectedCompanyTin, setSelectedCompanyTin] = useState<string>('');
   const [selectedCompanyName, setSelectedCompanyName] = useState<string>('');
   const [companyData, setCompanyData] = useState<CompanyData | null>(null);
   const [projectsData, setProjectsData] = useState<ProjectData[]>([]);
   const [adjacentCompanies, setAdjacentCompanies] = useState<AdjacentCompany[]>([]);
   const [selectedAdjacentTins, setSelectedAdjacentTins] = useState<string[]>([]);
-  const [showingAdjacent, setShowingAdjacent] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [projectLimit, setProjectLimit] = useState<number>(10);
-  const [sortBy, setSortBy] = useState<string>('date');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [analysisData, setAnalysisData] = useState<any[]>([]);
+  const [isAnalysisLoading, setIsAnalysisLoading] = useState<boolean>(false);
 
   // Fetch company data
   useEffect(() => {
@@ -84,9 +84,9 @@ const CompanyDashboard: React.FC = () => {
   const handleCompanySelect = (tin: string, companyName: string) => {
     setSelectedCompanyTin(tin);
     setSelectedCompanyName(companyName);
-    setShowingAdjacent(false);
     setAdjacentCompanies([]);
     setSelectedAdjacentTins([]);
+    setActiveTab('overview');
   };
 
   // Find adjacent companies
@@ -102,7 +102,7 @@ const CompanyDashboard: React.FC = () => {
       const data = await response.json();
       
       setAdjacentCompanies(data || []);
-      setShowingAdjacent(true);
+      setActiveTab('competitors');
       setLoading(false);
     } catch (err: any) {
       console.error('Error finding adjacent companies:', err);
@@ -114,67 +114,62 @@ const CompanyDashboard: React.FC = () => {
   // Handle selection change in adjacent companies
   const handleAdjacentSelectionChange = (selectedTins: string[]) => {
     setSelectedAdjacentTins(selectedTins);
-    console.log('Selected companies:', selectedTins);
   };
 
-  // Return to main company view
-  const handleBackToMainCompany = () => {
-    setShowingAdjacent(false);
-  };
-
-  // Handle project limit change
-  const handleProjectLimitChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setProjectLimit(parseInt(e.target.value, 10));
-  };
-
-  // Handle sort change
-  const handleSortChange = (column: string) => {
-    if (sortBy === column) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(column);
-      setSortDirection('desc');
+  // Handle analyze competitors
+  const handleAnalyzeCompetitors = async () => {
+    if (selectedAdjacentTins.length === 0) return;
+    
+    setIsAnalysisLoading(true);
+    setError(null);
+    
+    try {
+      // Include the main company TIN plus all selected adjacent company TINs
+      const allCompanyTins = [selectedCompanyTin, ...selectedAdjacentTins];
+      
+      // Call the new API endpoint to get comprehensive data for all selected companies
+      const response = await fetch('http://localhost:8000/api/company-bids-analysis', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ company_tins: allCompanyTins }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to analyze company data');
+      }
+      
+      const analysisData = await response.json();
+      
+      // Set the analysis data for the component to use
+      setAnalysisData(analysisData);
+      
+      // Switch to analysis tab
+      setActiveTab('analysis');
+      setIsAnalysisLoading(false);
+    } catch (err: any) {
+      console.error('Error analyzing competitors:', err);
+      setError(err.message || 'Error analyzing competitors');
+      setIsAnalysisLoading(false);
     }
   };
 
-  // Sort projects
-  const sortedProjects = [...projectsData].sort((a, b) => {
-    if (sortBy === 'value') {
-      return sortDirection === 'asc' 
-        ? a.sum_price_agree - b.sum_price_agree 
-        : b.sum_price_agree - a.sum_price_agree;
-    } else if (sortBy === 'date') {
-      const dateA = a.contract_date ? new Date(a.contract_date) : a.transaction_date ? new Date(a.transaction_date) : new Date(0);
-      const dateB = b.contract_date ? new Date(b.contract_date) : b.transaction_date ? new Date(b.transaction_date) : new Date(0);
-      return sortDirection === 'asc' 
-        ? dateA.getTime() - dateB.getTime() 
-        : dateB.getTime() - dateA.getTime();
-    } else {
-      return 0;
+  // Available tabs configuration
+  const tabs = [
+    { id: 'overview' as TabId, label: 'Overview' },
+    { 
+      id: 'competitors' as TabId, 
+      label: 'Competitors', 
+      disabled: !selectedCompanyTin
+    },
+    { 
+      id: 'analysis' as TabId, 
+      label: 'Analysis', 
+      disabled: selectedAdjacentTins.length === 0
     }
-  });
-
-  // Format the date
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-GB', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-  // Format the value
-  const formatValue = (value: number) => {
-    if (value >= 1000000) {
-      return `${(value / 1000000).toFixed(2)}M THB`;
-    } else if (value >= 1000) {
-      return `${(value / 1000).toFixed(2)}K THB`;
-    } else {
-      return `${value.toFixed(2)} THB`;
-    }
-  };
+  ];
 
   return (
     <div className="company-dashboard">
@@ -188,7 +183,18 @@ const CompanyDashboard: React.FC = () => {
         <CompanySearch onCompanySelect={handleCompanySelect} />
       </div>
       
-      {/* Main content */}
+      {/* Tab navigation */}
+      {selectedCompanyTin && (
+        <div className="tabs-container">
+          <TabNavigation
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            tabs={tabs}
+          />
+        </div>
+      )}
+      
+      {/* Main content based on active tab */}
       <div className="dashboard-content">
         {loading ? (
           <div className="loading">
@@ -198,166 +204,7 @@ const CompanyDashboard: React.FC = () => {
           <div className="error">
             <p>{error}</p>
           </div>
-        ) : selectedCompanyTin && !showingAdjacent ? (
-          <>
-            {/* Company info card */}
-            <div className="company-info-panel">
-              <h2 className="company-name">{selectedCompanyName}</h2>
-              <div className="company-stats">
-                <div className="stat-item">
-                  <div className="stat-label">TIN</div>
-                  <div className="stat-value">{selectedCompanyTin}</div>
-                </div>
-                {companyData && (
-                  <>
-                    <div className="stat-item">
-                      <div className="stat-label">Total Bids</div>
-                      <div className="stat-value">{companyData.total_bids}</div>
-                    </div>
-                    <div className="stat-item">
-                      <div className="stat-label">Wins</div>
-                      <div className="stat-value">{companyData.wins}</div>
-                    </div>
-                    <div className="stat-item">
-                      <div className="stat-label">Win Rate</div>
-                      <div className="stat-value">{companyData.win_rate.toFixed(1)}%</div>
-                    </div>
-                  </>
-                )}
-                <div className="stat-action">
-                  <button 
-                    onClick={handleFindAdjacentCompanies}
-                    className="find-adjacent-button"
-                    disabled={loading}
-                  >
-                    {loading ? 'Loading...' : 'Find Adjacent Companies'}
-                  </button>
-                </div>
-              </div>
-            </div>
-            
-            {/* Charts section - using a better grid layout */}
-            <div className="charts-container">
-              <div className="charts-grid">
-                {companyData && (
-                  <div className="chart-wrapper win-rate-chart">
-                    <h3 className="chart-title">Bid Win Rate</h3>
-                    <CompanyWinRateChart 
-                      companyName={selectedCompanyName}
-                      winRate={companyData.win_rate}
-                      totalBids={companyData.total_bids}
-                      wins={companyData.wins}
-                    />
-                    <div className="chart-footer">
-                      <p>Win rate for {selectedCompanyName}</p>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="chart-wrapper history-chart">
-                  <div className="chart-header">
-                    <h3 className="chart-title">Project History</h3>
-                    <div className="chart-controls">
-                      <label htmlFor="project-limit">Show:</label>
-                      <select 
-                        id="project-limit" 
-                        value={projectLimit}
-                        onChange={handleProjectLimitChange}
-                        className="limit-select"
-                      >
-                        <option value={5}>5 projects</option>
-                        <option value={10}>10 projects</option>
-                        <option value={15}>15 projects</option>
-                        <option value={20}>20 projects</option>
-                      </select>
-                    </div>
-                  </div>
-                  <BiddingHistoryChart 
-                    projectsData={projectsData}
-                    companyName={selectedCompanyName}
-                  />
-                </div>
-              </div>
-            </div>
-            
-            {/* Projects table - now with enhanced interactive features */}
-            <div className="projects-table-panel">
-              <div className="table-header">
-                <h3 className="table-title">Recent Projects</h3>
-                <div className="table-controls">
-                  <label htmlFor="table-sort">Sort by:</label>
-                  <select 
-                    id="table-sort"
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                    className="sort-select"
-                  >
-                    <option value="date">Date</option>
-                    <option value="value">Value</option>
-                  </select>
-                  <button 
-                    onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
-                    className="sort-direction-button"
-                    title={`Sort ${sortDirection === 'asc' ? 'Ascending' : 'Descending'}`}
-                  >
-                    {sortDirection === 'asc' ? '↑' : '↓'}
-                  </button>
-                </div>
-              </div>
-              <div className="table-container">
-                <table className="projects-table">
-                  <thead>
-                    <tr>
-                      <th className="project-name-column">Project Name</th>
-                      <th 
-                        className={`value-column ${sortBy === 'value' ? 'active-sort' : ''}`}
-                        onClick={() => handleSortChange('value')}
-                      >
-                        Value {sortBy === 'value' && (sortDirection === 'asc' ? '↑' : '↓')}
-                      </th>
-                      <th 
-                        className={`date-column ${sortBy === 'date' ? 'active-sort' : ''}`}
-                        onClick={() => handleSortChange('date')}
-                      >
-                        Date {sortBy === 'date' && (sortDirection === 'asc' ? '↑' : '↓')}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedProjects.slice(0, projectLimit).map((project, index) => (
-                      <tr key={index} className="project-row">
-                        <td className="project-name">
-                          <div className="project-name-text">{project.project_name}</div>
-                        </td>
-                        <td className="value-cell">
-                          <div className="value-text">{formatValue(project.sum_price_agree)}</div>
-                        </td>
-                        <td className="date-cell">
-                          <div className="date-text">
-                            {formatDate(project.contract_date || project.transaction_date)}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {projectsData.length > projectLimit && (
-                <div className="table-footer">
-                  <p>Showing {projectLimit} of {projectsData.length} projects</p>
-                </div>
-              )}
-            </div>
-          </>
-        ) : showingAdjacent ? (
-          <AdjacentCompaniesCard
-            companies={adjacentCompanies}
-            onCompanySelect={handleCompanySelect}
-            onSelectionChange={handleAdjacentSelectionChange}
-            mainCompanyName={selectedCompanyName}
-            onBackToMainCompany={handleBackToMainCompany}
-          />
-        ) : (
+        ) : !selectedCompanyTin ? (
           <div className="dashboard-placeholder">
             <div className="placeholder-message">
               <h3>Welcome to Thai Project Tracker</h3>
@@ -368,7 +215,34 @@ const CompanyDashboard: React.FC = () => {
               </p>
             </div>
           </div>
-        )}
+        ) : activeTab === 'overview' ? (
+          <CompanyOverview
+            companyData={companyData}
+            projectsData={projectsData}
+            companyName={selectedCompanyName}
+            companyTin={selectedCompanyTin}
+            onFindAdjacentCompanies={handleFindAdjacentCompanies}
+          />
+        ) : activeTab === 'competitors' ? (
+          <CompetitorsView
+            adjacentCompanies={adjacentCompanies}
+            mainCompanyName={selectedCompanyName}
+            onCompanySelect={handleCompanySelect}
+            onSelectionChange={handleAdjacentSelectionChange}
+            selectedTins={selectedAdjacentTins}
+            onAnalyzeCompetitors={handleAnalyzeCompetitors}
+            isAnalysisLoading={isAnalysisLoading}
+          />
+        ) : activeTab === 'analysis' ? (
+          <CompetitorAnalysis
+            analysisData={analysisData}
+            mainCompanyName={selectedCompanyName}
+            mainCompanyTin={selectedCompanyTin}
+            competitors={adjacentCompanies.filter(company => 
+              selectedAdjacentTins.includes(company.tin)
+            )}
+          />
+        ) : null}
       </div>
       
       <div className="dashboard-footer">
