@@ -33,12 +33,6 @@ call venv\Scripts\activate
 echo Installing backend dependencies...
 pip install -r requirements.txt
 
-:: Convert JSON to CSV if it doesn't exist
-if not exist projects_data.csv (
-    echo Converting JSON to CSV...
-    python convert_json_to_csv.py
-)
-
 :: Start backend server in background
 echo Starting backend server...
 start "" python -m uvicorn main:app --reload
