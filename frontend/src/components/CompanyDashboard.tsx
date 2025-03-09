@@ -4,6 +4,7 @@ import CompanyOverview from './CompanyOverview';
 import CompetitorsView from './CompetitorsView';
 import CompetitorAnalysis from './CompetitorAnalysis';
 import TabNavigation, { TabId } from './TabNavigation';
+import api from '../services/api';
 
 interface CompanyData {
   tin: string;
@@ -53,7 +54,7 @@ const CompanyDashboard: React.FC = () => {
 
       try {
         // Fetch company data
-        const response = await fetch(`http://localhost:8000/api/search-companies?query=${selectedCompanyTin}`);
+        const response = await api.searchCompanies(selectedCompanyTin);
         const data = await response.json();
         
         if (data && data.length > 0) {
@@ -65,7 +66,7 @@ const CompanyDashboard: React.FC = () => {
         }
         
         // Fetch company projects
-        const projectsResponse = await fetch(`http://localhost:8000/api/company-projects/${selectedCompanyTin}`);
+        const projectsResponse = await api.getCompanyProjectsByTin(selectedCompanyTin);
         const projectsData = await projectsResponse.json();
         setProjectsData(projectsData || []);
         
@@ -98,7 +99,7 @@ const CompanyDashboard: React.FC = () => {
 
     try {
       // Fetch adjacent companies
-      const response = await fetch(`http://localhost:8000/api/adjacent-companies/${selectedCompanyTin}`);
+      const response = await api.getAdjacentCompanies(selectedCompanyTin);
       const data = await response.json();
       
       setAdjacentCompanies(data || []);
@@ -127,31 +128,19 @@ const CompanyDashboard: React.FC = () => {
       // Include the main company TIN plus all selected adjacent company TINs
       const allCompanyTins = [selectedCompanyTin, ...selectedAdjacentTins];
       
-      // Call the new API endpoint to get comprehensive data for all selected companies
-      const response = await fetch('http://localhost:8000/api/company-bids-analysis', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ company_tins: allCompanyTins }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to analyze company data');
-      }
-      
-      const analysisData = await response.json();
+      // Use API service to call the endpoint
+      const response = await api.analyzeCompanyBids(allCompanyTins);
       
       // Set the analysis data for the component to use
-      setAnalysisData(analysisData);
+      setAnalysisData(response.data);
       
       // Switch to analysis tab
       setActiveTab('analysis');
       setIsAnalysisLoading(false);
     } catch (err: any) {
       console.error('Error analyzing competitors:', err);
-      setError(err.message || 'Error analyzing competitors');
+      const errorMessage = err.response?.data?.detail || err.message || 'Error analyzing competitors';
+      setError(errorMessage);
       setIsAnalysisLoading(false);
     }
   };

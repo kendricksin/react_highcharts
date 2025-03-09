@@ -1,6 +1,6 @@
 // src/components/CompanySearch.tsx
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { useState } from 'react';
+import api from '../services/api';
 
 interface CompanySearchProps {
   onCompanySelect: (tin: string, companyName: string) => void;
@@ -36,9 +36,7 @@ const CompanySearch: React.FC<CompanySearchProps> = ({ onCompanySelect }) => {
     setError(null);
     
     try {
-      const response = await axios.get<CompanySearchResult[]>(
-        `http://localhost:8000/api/search-companies?query=${searchTerm}`
-      );
+      const response = await api.searchCompanies(searchTerm);
       
       setSearchResults(response.data);
       
