@@ -51,11 +51,12 @@ const CompanyDashboard: React.FC = () => {
     const fetchCompanyData = async () => {
       setLoading(true);
       setError(null);
-
+    
       try {
         // Fetch company data
         const response = await api.searchCompanies(selectedCompanyTin);
-        const data = await response.json();
+        // Axios already parses JSON, so we can use response.data directly
+        const data = response.data;
         
         if (data && data.length > 0) {
           // Find the exact match
@@ -67,7 +68,8 @@ const CompanyDashboard: React.FC = () => {
         
         // Fetch company projects
         const projectsResponse = await api.getCompanyProjectsByTin(selectedCompanyTin);
-        const projectsData = await projectsResponse.json();
+        // Same here, use .data directly
+        const projectsData = projectsResponse.data;
         setProjectsData(projectsData || []);
         
         setLoading(false);
@@ -91,26 +93,27 @@ const CompanyDashboard: React.FC = () => {
   };
 
   // Find adjacent companies
-  const handleFindAdjacentCompanies = async () => {
-    if (!selectedCompanyTin) return;
+const handleFindAdjacentCompanies = async () => {
+  if (!selectedCompanyTin) return;
 
-    setLoading(true);
-    setError(null);
+  setLoading(true);
+  setError(null);
 
-    try {
-      // Fetch adjacent companies
-      const response = await api.getAdjacentCompanies(selectedCompanyTin);
-      const data = await response.json();
-      
-      setAdjacentCompanies(data || []);
-      setActiveTab('competitors');
-      setLoading(false);
-    } catch (err: any) {
-      console.error('Error finding adjacent companies:', err);
-      setError('Failed to find adjacent companies');
-      setLoading(false);
-    }
-  };
+  try {
+    // Fetch adjacent companies
+    const response = await api.getAdjacentCompanies(selectedCompanyTin);
+    // Use .data directly
+    const data = response.data;
+    
+    setAdjacentCompanies(data || []);
+    setActiveTab('competitors');
+    setLoading(false);
+  } catch (err: any) {
+    console.error('Error finding adjacent companies:', err);
+    setError('Failed to find adjacent companies');
+    setLoading(false);
+  }
+};
 
   // Handle selection change in adjacent companies
   const handleAdjacentSelectionChange = (selectedTins: string[]) => {
